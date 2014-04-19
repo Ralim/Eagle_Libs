@@ -1,0 +1,80 @@
+# Created by Ultra Librarian Gold 5.3.88 Copyright © 1999-2010
+# Tanvir Mohammed, Premier Farnell
+
+Grid mil;
+Set Wire_Bend 2;
+
+
+Edit 'SOT95P255X145-3N.pac';
+Layer 1;
+Smd '1' 22 52 -0 R0 (-37 -47);
+Layer 1;
+Smd '2' 22 52 -0 R0 (37 -47);
+Layer 1;
+Smd '3' 22 52 -0 R0 (0 47);
+Layer 51;
+Wire 6 (-27 -35) (-47 -35);
+Wire 6 (-47 -35) (-47 -59);
+Wire 6 (-47 -59) (-27 -59);
+Wire 6 (-27 -59) (-27 -35);
+Wire 6 (47 -35) (27 -35);
+Wire 6 (27 -35) (27 -59);
+Wire 6 (27 -59) (47 -59);
+Wire 6 (47 -59) (47 -35);
+Wire 6 (-10 35) (10 35);
+Wire 6 (10 35) (10 59);
+Wire 6 (10 59) (-10 59);
+Wire 6 (-10 59) (-10 35);
+Wire 6 (-61 -35) (61 -35);
+Wire 6 (61 -35) (61 35);
+Wire 6 (61 35) (-61 35);
+Wire 6 (-61 35) (-61 -35);
+Layer 21;
+Wire 6 (-24 35) (-61 35);
+Wire 6 (-13 -35) (13 -35);
+Wire 6 (61 -18) (61 35);
+Wire 6 (61 35) (24 35);
+Wire 6 (-61 35) (-61 -18);
+Layer 25;
+Change Size 82;
+Change Ratio 10;
+Text '>NAME' SR0 (-184 101);
+Layer 27;
+Change Size 82;
+Change Ratio 10;
+Text '>VALUE' SR0 (-225 -174);
+
+Edit 'MCP1703T-1802E/CB.sym';
+Layer 94;
+Pin 'VIN' Pwr None Middle R0 Both 0 (0 0);
+Pin 'GND' Pas None Middle R0 Both 0 (0 -200);
+Pin 'VOUT' Out None Middle R180 Both 0 (1400 0);
+Wire 6 (200 200) (200 -400);
+Wire 6 (200 -400) (1200 -400);
+Wire 6 (1200 -400) (1200 200);
+Wire 6 (1200 200) (200 200);
+Layer 97;
+Layer 95;
+Change Size 82;
+Change Ratio 10;
+Text '>NAME' SR0 (490 263);
+Layer 96;
+Change Size 82;
+Change Ratio 10;
+Text '>VALUE' SR0 (462 -500);
+
+Edit 'MCP1703T-1802E/CB.dev';
+Prefix '';
+Description 'LDO Regulator';
+Value Off;
+Add MCP1703T-1802E/CB 'A' Next  0 (0 0);
+Package 'SOT95P255X145-3N';
+Technology '';
+Attribute Supplier 'MICROCHIP';
+Attribute MPN 'MCP1703T-1802E/CB';
+Attribute Package 'SOT23-3';
+Attribute OC_FARNELL '1439516';
+Attribute OC_NEWARK '58M8874';
+Connect 'A.GND' '1';
+Connect 'A.VOUT' '2';
+Connect 'A.VIN' '3';

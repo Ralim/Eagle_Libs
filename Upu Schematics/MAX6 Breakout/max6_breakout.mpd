@@ -1,0 +1,2 @@
+//MPD-File
+#ifndef(pack_JP1) #declare global_pack_JP1=yes; object {CON_PH_1X8()translate<0,0,0> rotate<0,0.000000,0>rotate<0,0.000000,0> rotate<0,0,0> translate<1.270000,0.000000,60.642500>}#end		//Header 2,54mm Grid 8Pin 1Row (jumper.lib) JP1  1X08
