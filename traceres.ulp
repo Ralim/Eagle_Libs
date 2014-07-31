@@ -1,0 +1,532 @@
+// Trace Resistance Calculator
+// Version 0.1
+// May 10th, 2004
+
+#usage "<b>Trace Resistance Calculator</b>"
+       "<p>"
+       "Calculates the DC resistance of all traces on a board."
+       "<p>"
+       "The resistance values will be overlaid on a new layer."
+       "<p>"
+       "This tool is meant solely as a conceptual aid. Its "
+       "accuracy is not guaranteed."
+       "<p>"
+       "A future version might export a SPICE subcircuit that "
+       "models the parasitic elements of the circuit board "
+       "for use in AC analysis."
+       "<p>"
+       "<i>Author: Chris Holmes<br>"
+       "christopher.d.holmes@grc.nasa.gov</i>"
+
+
+string Credits = "This calculator was developed based on a series of articles by UltraCAD Design, Inc. \
+                (<i>http://www.ultracad.com</i>). \
+                <p> \
+                See <a href=\"http://www.ultracad.com/wiregage.pdf\">http://www.ultracad.com/wiregage.pdf</a> \
+                for information pertaining to wire resistance calculation. \
+                <p> \
+                See <a href=\"http://www.ultracad.com/pcbtemp.pdf\">http://www.ultracad.com/pcbtemp.pdf</a> \
+                for methods and equations to calculate PCB temperature rise. \
+                <p> \
+                The EAGLE conversion was done by Chris Holmes (christopher.d.holmes@grc.nasa.gov).";
+
+string Help = "<h2>Trace Resistance Calculator</h2> \
+              <p> \
+              DISCLAIMER: THE RESULTS PRODUCED BY THIS PROGRAM ARE APPROXIMATIONS MEANT FOR EDUCATIONAL USE ONLY. \
+              THEIR ACCURACY IS NOT GUARANTEED. USE AT YOUR OWN RISK. \
+              <p> \
+              <hr> \
+              <p> \
+              <b>Overview</b> \
+              <p> \
+              For each signal layer on your circuit board, this program will produce a new overlay layer that \
+              shows the resistance of every trace. It can also tell you how much current each trace can carry \
+              based on the maximum allowable temperature rise. Note that the program is unable to handle arcs \
+              and polygons (planes). \
+              <p> \
+              <b>Layer and Colors</b> \
+              <p> \
+              You'll first have to tell the program which layers it should scan and produce resistance values \
+              for. By default all the signal layers currently being used are selected. \
+              <p>Each selected signal layer will also need a corresponding output layer on which the calculated \
+              values are written. The name of an output layer is ResistanceSSS where SSS is the name of the \
+              corresponding signal layer. If you select a signal layer for which no output layer yet exists, you \
+              will have the option of assigning a layer number to the new layer. \
+              <p>There is also the option to set the color of the output layer. Normally you want to pick a color \
+              that's easy to read when laid over a trace. The program will automatically suggest a color that's \
+              legible for each layer. \
+              <p> \
+              <b>Parameters</b> \
+              <p> \
+              Several parameters must be set for the resistance calculations. You may accept the defaults or choose \
+              your own. \
+              <p> \
+              Ambient temperature is used to determine the trace resistance. Any value is allowed (within reason). \
+              <p> \
+              The resistance threshold is the lowest resistance for which a label will be placed on the overlay \
+              layer. This avoids excessive amounts of text at corners, intersections, etc. where small traces tend \
+              to show up. \
+              <p> \
+              Finally, define the copper weight in ounces for the inner and outer layers. \
+              <p> \
+              You can also tell the program to delete the text from a previous set of measurements to \
+              avoid making a mess. Be careful though since this option will delete all text on the \
+              overlay layers. \
+              <p> \
+              <b>Current Capacity</b> \
+              <p> \
+              This program is also to solve for the maximum current a trace can carry based upon the allowed \
+              temperature rise. Note that this operation is <i>very</i> approximate and should only be used \
+              for ballpark estimates. \
+              <p> \
+              If you choose to calculate maximum current, you must tell the program how many degrees above \
+              ambient the trace temperature may rise. You may also elect to suppress the resistance measurement \
+              text so that the display is less cluttered. (Note that the resistance threshold is still in effect \
+              even when you choose not to show the resistance values. \
+              <p> \
+              Two different calculation methods are available. See the \"Credits\" tab for more information. \
+              Both methods have a limited range of operation and will not work as trace shape, temperature \
+              or current exceed typical values. \
+              <p> \
+              <b>Script File Location</b> \
+              <p> \
+              The output of this program is a script file that tells EAGLE how to draw the resistance overlays. \
+              You will have to specify a location for the script file to be written to. It is recommended to \
+              place the file (traceres.scr) in one of your default script directories as this will enable \
+              the auto execute function. When auto execute is checked, the resistance drawing script will automatically \
+              be run when the ULP exits.";
+              
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+string Colors[] = { "Black", "Blue", "Green", "Cyan", "Red", "Magenta", "Brown", "Light Gray",
+                    "Dark Gray", "Light Blue", "Light Green", "Light Cyan", "Light Red", "Light Magenta",
+                    "Yellow", "White" };
+
+string Units[] = { "uohms", "mohms", "ohms" };
+
+enum { MICROOHMS, MILLIOHMS, OHMS };
+
+int bProcessLayer[];			// Boolean indicates which of the signal layers should be processed
+int iTextColor[];			// Text color for each of sixteen possible output layers
+int iOutputLayer[];			// Layer numbers of the output layers
+int bLayerUsed[];			// Flags from EAGLE indicating whether a particular layer is in use
+string sLayerName[];			// Names of the signal layers
+int bOutLayerChangeable[];		// Boolean indicates whether the user may change the output layer number
+int bLayerVisible[];			// Remembers which layers are visible when the program starts and
+					//  restores the same visibility upon exiting
+
+// The following variables are set in the
+// user dialog. The values shown are defaults
+// used in the event that the user's saved
+// values cannot be restored.
+
+real fAmbient = 25;			// Ambient temperature
+int bFindCapacity = 0;			// Whether to find the current capacity of the traces
+int bNoResistance = 0;			// Whether to supress the resistance display when showing current capacity
+real fTempRise = 50;			// Maximum allowed temperature rise
+real fResistanceThreshold = 0.001;	//
+int bDeleteOld = 1;
+int iThresholdUnits = OHMS;
+real fOuterCopperWeight = 2;		// Outer copper weight (ounces)
+real fInnerCopperWeight = 1;		// Innter copper weight (ounces)
+int iMethod = 0;			// IPC method is the default
+string sScriptFile;			// The script file output
+int bAutoExecute = 0;			// Flags auto execution
+
+
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+// This function picks a text color that will show up
+// legibly on a given background color.
+
+int findAppropriateTextColor(int color) {
+  switch (color) {
+    case 0: return 15;
+    case 1: return 15;
+    case 2: return 15;
+    case 3: return 4;
+    case 4: return 15;
+    case 5: return 15;
+    case 6: return 15;
+    case 7: return 15;
+    case 8: return 15;
+    case 9: return 15;
+    case 10: return 15;
+    case 11: return 4;
+    case 12: return 2;
+    case 13: return 14;
+    case 14: return 5;
+    case 15: return 0;
+  }
+}
+
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// Process
+//
+// This function does all the work after the user has OK'd the setup dialog
+//
+
+void Process() {
+  string str, str2;					// Temporary strings
+
+  real fCurrent;					// Calculated maximum current
+  real fResistance;					// Calculated resistance
+  real fAngle;						// Angle of displayed text
+  real fLength;						// Length of trace
+  int i;						// Index variable
+  real x, y;						// Coordinates of displayed text
+  char cResistanceUnits;				// Units of resistance
+  real fTextSize;					// Approximate width of text in mils
+  char cCurrentUnit;					// Units of current
+  string sFormatStr;					// Format string used for current text
+
+
+  if (iThresholdUnits == MICROOHMS)			// Combine the resistance threshold and units
+    fResistanceThreshold /= 1000000;			// from the dialog into a single number with
+  else if (iThresholdUnits == MILLIOHMS)		// ohms as units
+    fResistanceThreshold /= 1000;
+
+  str = filedir(argv[0]) + "traceres.dat";		// Write (most of) the dialog values out to the
+  output(str, "wt") {					// defaults file so we can remember them for next time
+    printf("%f\n", fAmbient);
+    printf("%f\n", fResistanceThreshold);
+    printf("%f\n", fOuterCopperWeight);
+    printf("%f\n", fInnerCopperWeight);
+    printf("%d\n", bDeleteOld);
+    printf("%d\n", bFindCapacity);
+    printf("%f\n", fTempRise);
+    printf("%d\n", iMethod);
+    printf("%s\n", sScriptFile);
+    printf("%d\n", bAutoExecute);
+    printf("%d\n", bNoResistance);
+  }
+
+  output(sScriptFile, "wt") {				// Open the script file for output
+    printf("GRID MIL;\n");				// Set up the grid and font. I happen to like mils,
+    printf("GRID 1;\n");				// so that's what I'm using.
+    printf("CHANGE FONT VECTOR;\n");
+
+    printf("DISPLAY NONE;\n");				// Turn off all layers by default
+
+    for(i = 1; i <= 16; i++) {				// Add the output layers and turn them on. Set
+      if (bProcessLayer[i] == 1) {			// the layer colors too.
+        printf("LAYER %d Resistance%s;\n", iOutputLayer[i], sLayerName[i]);
+        printf("DISPLAY %d;\n", iOutputLayer[i]);
+        printf("SET COLOR_LAYER %d %d;\n", iOutputLayer[i], iTextColor[i]);
+      }
+    }
+
+    if (bDeleteOld) {					// Delete the old overlay text if the user has
+      board(B) {					// picked that option
+        B.texts(T) {
+          for(int i = 1; i <= 16; i++) {
+            if (T.layer == iOutputLayer[i])
+              printf("DELETE (%f %f);\n", u2mil(T.x), u2mil(T.y));
+          }
+        }
+      }
+    }
+
+    board(B) {
+      B.signals(S) {
+        S.wires(W) {
+          if ((W.layer <= 16) && (!W.arc)) {		// Only pay attention to wires on non-signal layers that
+            printf("DISPLAY %d;\n", W.layer);		//  aren't arcs
+							// Calculate the length of the trace
+            fLength = sqrt(pow(u2inch(W.x2)-u2inch(W.x1), 2) + pow(u2inch(W.y2)-u2inch(W.y1), 2));
+
+            if (W.layer == 1 || W.layer == 16)		// Calculate the resistance (in ohms) of the trace
+              fResistance = 0.6788 * fLength / (u2inch(W.width) * fOuterCopperWeight * .00135) / 1000000;
+            else
+              fResistance = 0.6788 * fLength / (u2inch(W.width) * fInnerCopperWeight * .00135) / 1000000;
+
+            fResistance *= (1 + .00393 * (fAmbient - 20));	// Correct for the ambient temperature
+
+    	    if (fResistance >= fResistanceThreshold) {
+              printf("LAYER %d;\n", iOutputLayer[W.layer]);
+              printf("CHANGE SIZE %.0f;\n", u2mil(W.width)*0.67);	// Change the text size to fit inside the trace
+
+              if (W.x2-W.x1 == 0)				// Calculate the angle of the trace (and therefore
+                  fAngle = 90.0;				//  the text)
+              else
+                  fAngle = atan((W.y2-W.y1)/(W.x2-W.x1)) * 360.0 / (2 * PI);
+
+              x = (u2mil(W.x1)+u2mil(W.x2))/2;			// Set x and y to the middle of the trace
+              y = (u2mil(W.y1)+u2mil(W.y2))/2;
+
+              if (fResistance >= 1.0) {				// Convert the resistance to nicer units
+                cResistanceUnits = ' ';
+              } else if (fResistance >= 0.001) {
+                cResistanceUnits = 'm';
+                fResistance *= 1000;
+              } else {
+                cResistanceUnits = 'u';
+                fResistance *= 1000000;
+              }
+
+              sprintf(str, "%01.1f%co", fResistance, cResistanceUnits);	// Form the resistance text
+		
+              if (bFindCapacity) {				// Find the current capacity here if the user
+                if (iMethod == 0) {				//  has requested it
+                  if (W.layer == 1 || W.layer == 16)
+                    fCurrent = .0647 * pow(fTempRise, 0.4281) * pow(u2mil(W.width) * fOuterCopperWeight * 1.37, 0.6732);
+                  else
+                    fCurrent = .0150 * pow(fTempRise, 0.5453) * pow(u2mil(W.width) * fInnerCopperWeight * 1.37, 0.7349);
+                } else {
+                  if (W.layer == 1 || W.layer == 16)
+                    fCurrent = .0333 * exp(.000125 * u2mil(W.width)) * pow(fTempRise, .475) * pow(u2mil(W.width),.722) * pow(fOuterCopperWeight * 1.37, .541);
+                  else
+                    fCurrent = .0333 * exp(.000125 * u2mil(W.width)) * pow(fTempRise, .475) * pow(u2mil(W.width),.722) * pow(fInnerCopperWeight * 1.37, .541);
+                }
+
+                sFormatStr = " %01.0f%cA";			// Convert the current to nicer units
+                if (fCurrent < .001) {
+                  fCurrent *= 1000000;
+                  cCurrentUnit = 'u';
+                } else if (fCurrent < 1) {
+                  fCurrent *= 1000;
+                  cCurrentUnit = 'm';
+                } else {
+                  cCurrentUnit = ' ';
+                  sFormatStr = " %01.1f%cA";
+                }
+                sprintf(str2, sFormatStr, fCurrent, cCurrentUnit);
+                if (bNoResistance)				
+                  str = str2;					// Overwrite the resistance if it shouldn't be shown
+                else
+                  str = str + str2;				// Otherwise append the current to the resistance
+              }
+
+              fTextSize = 0;					// Approximate text sizing routine. Derived from
+              for(i = 0; i < strlen(str); i++) {		// my own measurements / experiments.
+                fTextSize += 24;
+                if (str[i] == '.')
+                  fTextSize += 21;
+                else
+                  fTextSize += 69;
+              }
+
+              fTextSize = fTextSize * (u2mil(W.width)*0.67) / 100.0;	// I measured all the text at 100 mil
+									// height, so here we scale it to the
+									// appropriate height.
+
+
+              x += sin(fAngle * 2 * PI / 360) * u2mil(W.width) / 3;	// Shift the text so it appears in the
+              y -= cos(fAngle * 2 * PI / 360) * u2mil(W.width) / 3;	// vertical center of the trace
+
+              x -= cos(fAngle * 2 * PI / 360) * (fTextSize / 2);	// Shift the text so it appears in the
+              y -= sin(fAngle * 2 * PI / 360) * (fTextSize / 2);	// horizontal center of the trace
+              
+              printf("TEXT '%s' R%.0f (%f %f);\n", str, fAngle, x, y);
+            }        
+          }
+        }
+      }
+    }
+    printf("DISPLAY");			// Restore the layer display to the way it was when the
+    for(i = 1; i <= 255; i++)		// program was started
+      if (bLayerVisible[i] == 1)
+        printf(" %d", i);
+    printf(";\n");
+  }
+  if (bAutoExecute)			// Run the script if the user has requested it
+    exit("script traceres.scr");
+  else
+    exit(0);
+}
+
+
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// Main code
+// 
+// Sets up the default values and displays a dialog for the user
+//
+
+string defaults[];	// Array of strings containing default values from the defaults file
+int itemsRead;		// Number of items read from the defaults file
+string defaultFile;	// String containing the path and file name of the defaults file
+
+if (schematic || library) {
+  dlgMessageBox("!The calculator only works on a board!");
+  exit(-1);
+}
+
+defaultFile = filedir(argv[0]) + "traceres.dat";	// The defaults file should be in the same path as the ULP
+
+if (fileglob(defaults, defaultFile)) {			// Check if the defaults file exists already. 'defaults' is
+							//  used as a dummy variable.
+  fileerror();						// Reset the file error flag
+  itemsRead = fileread(defaults, defaultFile);		// Try to read the defaults in
+
+  if (itemsRead == 11 && !fileerror()) {		// If successful then update variables with default values
+    fAmbient = strtod(defaults[0]);
+    fResistanceThreshold = strtod(defaults[1]);
+    fOuterCopperWeight = strtod(defaults[2]);
+    fInnerCopperWeight = strtod(defaults[3]);
+    bDeleteOld = strtol(defaults[4]);
+    bFindCapacity = strtol(defaults[5]);
+    fTempRise = strtod(defaults[6]);
+    iMethod = strtol(defaults[7]);
+    sScriptFile = defaults[8];
+    bAutoExecute = strtol(defaults[9]);
+    bNoResistance = strtol(defaults[10]);
+  }
+} else {
+  dlgMessageBox(";Thanks for trying the trace resistance calculator. Please begin by choosing a location for the output script file (normally your default EAGLE script directory).");
+}
+
+for(int i = 0; i <= 16; i++) bProcessLayer[i] = 0;		// Reset bProcessLayer array
+
+int n;
+string lname;
+
+board(B) {						// Gather information about board layers
+  B.layers(L) {
+    bLayerVisible[L.number] = L.visible;		// Remember which layers are visible
+    if (L.number <= 16) {				// For signal layers: pick a text color, check if
+      iTextColor[L.number] = findAppropriateTextColor(L.color);	// the layer is in use, save its name,
+      bLayerUsed[L.number] = L.used;				// give it a default output layer number and
+      sLayerName[L.number] = L.name;				// flag that the user can change the number by default
+      iOutputLayer[L.number] = 200 + L.number - 1;
+      bOutLayerChangeable[L.number] = 1;
+    }
+
+    if (L.number > 100) {				// For user-defined layers, if a Resistance... layer exists
+      if (strstr(L.name, "Resistance") != -1) {		// already, flag that the user is not allowed to change
+        lname = strsub(L.name, 10);			// that layer number.
+        board(B) {
+          B.layers(L2) {
+            if (L2.number <= 16 && L2.name == lname) {   
+              bOutLayerChangeable[L2.number] = 0;
+              iOutputLayer[L2.number] = L.number;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+
+// Initialize the resistance threshold edit box and drop down list
+
+if (fResistanceThreshold < .001)
+  iThresholdUnits = MICROOHMS;
+else if (fResistanceThreshold < 1)
+  iThresholdUnits = MILLIOHMS;
+else iThresholdUnits = OHMS;
+
+switch (iThresholdUnits) {
+  case MICROOHMS: fResistanceThreshold *= 1000000; break;
+  case MILLIOHMS: fResistanceThreshold *= 1000; break;
+}
+
+
+// Display the setup dialog to the user
+
+string str;
+
+dlgDialog("Trace Resistance Calculator") {
+  dlgTabWidget {
+    dlgTabPage("Setup") {
+      dlgGroup("Layers and Colors") {
+        dlgGridLayout {
+          dlgCell(0, 0) dlgLabel("<b>Signal Layers</b>");
+          dlgCell(0, 1) dlgLabel("<b>Output Layer</b>");
+          dlgCell(0, 2) dlgLabel("<b>Output Color</b>");
+
+          for(i = 1; i <= 16; i++) {
+            if (bLayerUsed[i]) {						// Only display used layers
+              bProcessLayer[i] = 1;
+              dlgCell(i, 0) dlgCheckBox(sLayerName[i], bProcessLayer[i]);
+
+              if (bOutLayerChangeable[i]) {					// If the output layer is changeable
+                dlgCell(i, 1) dlgIntEdit(iOutputLayer[i], 100, 255);		// then give the user an edit box.
+              } else {				
+                sprintf(str, "%d", iOutputLayer[i]);				// Otherwise just display a label
+                dlgCell(i, 1) dlgLabel(str);					// showing the output layer number.
+              }
+
+              dlgCell(i, 2) dlgComboBox(Colors, iTextColor[i]);
+            }
+          }
+        }
+      }
+      dlgGroup("Parameters") {
+        dlgGridLayout {
+          dlgCell(0, 0) dlgLabel("<b>Ambient Temperature</b>");
+          dlgCell(0, 1) dlgRealEdit(fAmbient);
+          dlgCell(0, 2) { dlgSpacing(5); dlgLabel("<b>&deg;C</b>"); }
+     
+          dlgCell(1, 0) dlgLabel("<b>Resistance Threshold</b>");
+          dlgCell(1, 1) dlgRealEdit(fResistanceThreshold);
+          dlgCell(1, 2) { dlgSpacing(5); dlgComboBox(Units, iThresholdUnits); }
+
+          dlgCell(2, 0) dlgLabel("<b>Outer Copper Weight</b>");
+          dlgCell(2, 1) dlgRealEdit(fOuterCopperWeight);
+          dlgCell(2, 2) { dlgSpacing(5); dlgLabel("<b>ounces</b>"); }
+
+          dlgCell(3, 0) dlgLabel("<b>Inner Copper Weight</b>");
+          dlgCell(3, 1) dlgRealEdit(fInnerCopperWeight);
+          dlgCell(3, 2) { dlgSpacing(5); dlgLabel("<b>ounces</b>"); }
+        }
+
+        dlgHBoxLayout {
+          dlgCheckBox("Delete old text on resistance layers", bDeleteOld);
+        }
+      }
+
+      dlgGroup("Current Capacity") {
+        dlgVBoxLayout {
+          dlgHBoxLayout {
+            dlgCheckBox("Solve for current capacity", bFindCapacity);
+            dlgSpacing(5);
+            dlgCheckBox("Don't show resistance", bNoResistance);
+          }
+          dlgHBoxLayout {
+            dlgLabel("<b>Temperature Rise</b>");
+            dlgRealEdit(fTempRise);
+            dlgLabel("<b>&deg;C</b>");
+          }
+          dlgHBoxLayout {
+            dlgLabel("<b>Method:</b>");
+            dlgRadioButton("IPC-D-275", iMethod);
+            dlgSpacing(10);
+            dlgRadioButton("Design News, 12/8/68", iMethod);
+          }
+        }
+      }
+      dlgGroup("Script File Location") {
+        dlgHBoxLayout {
+          dlgStringEdit(sScriptFile);
+          dlgSpacing(5);
+          dlgPushButton("Browse") {
+            sScriptFile = dlgFileSave("Select Location", "traceres.scr", "EAGLE script files (*.scr)");
+          }
+        }
+        dlgCheckBox("Auto Execute", bAutoExecute);
+      }
+      dlgHBoxLayout {
+        dlgStretch(1);
+        dlgPushButton("+Go")	{
+          if (sScriptFile == "")
+            dlgMessageBox("!Please set up the script file location");
+          else {
+            Process();
+            dlgAccept();
+          }
+        }
+        dlgPushButton("Cancel")	dlgReject();
+      }
+    }
+
+    dlgTabPage("Credits") {
+      dlgTextView(Credits);
+    }
+
+    dlgTabPage("Help") {
+      dlgTextView(Help);
+    }
+  }
+};
